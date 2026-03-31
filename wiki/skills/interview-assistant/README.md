@@ -29,7 +29,50 @@
 
 ---
 
-## 二、整体架构
+## 二、安装与使用
+
+### 安装（一行命令）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dufemeng/lm-2026-learning/main/wiki/skills/interview-assistant/install.sh | bash
+```
+
+安装内容：
+- `~/.interview-assistant/` — 工具脚本（session-extractor.mjs、code_analyzer.sh、run.sh、prompts/）
+- `~/.claude/commands/interview-assistant.md` — Claude Code CLI 斜杠命令
+- Shell alias `interview-assistant`（写入 `.zshrc` / `.bashrc`）
+
+前提：已安装 Claude Code CLI（[docs.anthropic.com/claude-code](https://docs.anthropic.com/en/docs/claude-code)）和 Node.js 18+。
+
+### 使用方式一：Claude Code CLI 斜杠命令（推荐）
+
+在任意项目目录打开 Claude Code CLI，输入：
+
+```
+/interview-assistant /path/to/your/project
+```
+
+Claude 会自动执行脚本提取、交叉印证、生成面试题和故事卡，全程在 Claude Code 里完成。
+
+### 使用方式二：直接运行脚本
+
+```bash
+# 自动化 Steps 1+2，并打印后续 LLM 步骤指引
+bash ~/.interview-assistant/run.sh /path/to/your/project
+
+# session 数据较大时缩减范围
+bash ~/.interview-assistant/run.sh /path/to/your/project --days 14 --max-files 10
+```
+
+### 更新到最新版
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dufemeng/lm-2026-learning/main/wiki/skills/interview-assistant/install.sh | bash
+```
+
+---
+
+## 三、整体架构
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -90,7 +133,7 @@
 
 ---
 
-## 三、各组件详细设计
+## 四、各组件详细设计
 
 ### 预处理层（P0）
 
@@ -246,7 +289,7 @@
 
 ---
 
-## 四、关键设计决策
+## 五、关键设计决策
 
 ### 1. 为什么不先"了解项目"再搜索 session
 
@@ -298,7 +341,7 @@ Assistant 的输出是基于通用知识的生成内容，面试时无法引用"
 
 ---
 
-## 五、MVP 实施步骤
+## 六、MVP 实施步骤
 
 ### Step 1：环境诊断
 
@@ -777,7 +820,7 @@ bash code_analyzer.sh /path/to/your/project
 
 ---
 
-## 六、使用流程（端到端示例）
+## 七、使用流程（端到端示例）
 
 以下是一个完整的示例：工程师用两周时间用 Claude Code CLI 开发了一个"智能视频脚本生成 Agent"，session 数据总量 120MB，现在要准备资深前端方向的面试。
 
@@ -874,7 +917,7 @@ bash code_analyzer.sh ~/projects/my-video-agent
 
 ---
 
-## 七、边界情况处理
+## 八、边界情况处理
 
 ### 情况 1：session 里全是代码，没有决策对话
 
@@ -950,7 +993,7 @@ const SESSION_DIR = path.join(os.homedir(), '.claude', 'projects', 'my-video-age
 
 ---
 
-## 八、后续迭代路线图
+## 九、后续迭代路线图
 
 ### P1 迭代（MVP 跑通后）
 
