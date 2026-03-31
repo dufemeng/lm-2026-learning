@@ -21,6 +21,7 @@
 │    │    ├── DRY (Don't Repeat Yourself)
 │    │    ├── KISS (Keep It Simple, Stupid)
 │    │    ├── YAGNI (You Aren't Gonna Need It)
+│    │    ├── AHA (Avoid Hasty Abstractions)  — 优先重复，再提炼抽象
 │    │    ├── LoD 迪米特法则 (最少知识原则)
 │    │    └── CoC 约定优于配置
 │    │
