@@ -12,7 +12,7 @@
 
 ### 目标用户
 
-有 3 年以上工作经验、近期用 Claude Code CLI 高强度开发过项目、正在准备跳槽的前端/全栈/Agent 方向工程师。
+用过 AI 辅助工具（Claude Code / Cursor / Windsurf 等）高强度开发过项目、项目决策散落在对话记录里、需要准备技术面试的工程师。不限工作年限，不限具体工具，不限技术方向。
 
 ### 核心价值主张
 
@@ -101,7 +101,7 @@
 | **输入** | 原始 `.jsonl` 文件路径（Claude Code CLI 格式） |
 | **输出** | 标准化的 JSON 数组，每条消息包含 `{role, content, timestamp, sessionId}` |
 | **核心逻辑** | 解析 Claude Code CLI 的 `.jsonl` 格式，将每行 JSON 反序列化，过滤掉工具调用噪声（`tool_use`/`tool_result` 类型的块），只保留 `text` 类型内容 |
-| **实现方式** | Python 脚本 |
+| **实现方式** | Node.js 脚本 |
 | **边界处理** | 文件编码异常时跳过该行并记录警告；`content` 为数组时拍平提取文本；`timestamp` 缺失时用文件修改时间补全 |
 
 #### 2. `SessionExtractor` [P0]
@@ -111,7 +111,7 @@
 | **输入** | 标准化消息数组（来自 SessionAdapter） |
 | **输出** | `extracted_decisions.md`，约 30–50KB |
 | **核心逻辑** | **三层过滤**：① 文件级：只处理最近 30 天、体积最大的 20 个 session 文件；② 消息级：丢弃纯代码块（`\`\`\`` 占比 > 70%）、长度 < 50 字的对话，优先保留 human turn；③ 语义级：用关键词过滤保留含"为什么/方案/决定/选择/不用/改成"的消息 |
-| **实现方式** | Python 脚本 |
+| **实现方式** | Node.js 脚本 |
 | **边界处理** | 全部过滤完后输出为空时，降级为只保留最长的 20 条 human turn 消息 |
 
 > 设计原因：human turn 比 assistant turn 更有面试价值。Assistant 的回答是通用知识，而你提问的方式、你描述的约束条件、你的追问方向，才反映了你真实的技术判断力。
@@ -127,7 +127,7 @@
 | **输入** | 项目根目录路径 |
 | **输出** | `code_summary.md`，约 5–10KB |
 | **核心逻辑** | 执行 4 条命令：① `tree -L 3 --gitignore` 获取目录结构；② 读取 `package.json`/`pyproject.toml` 获取依赖栈；③ `git log --oneline -50` 获取最近提交历史；④ 读取 `src/` 下各模块的 `index.ts` / `__init__.py` 等入口文件（不全量读代码） |
-| **实现方式** | Shell 脚本 + Python 合并输出 |
+| **实现方式** | Shell 脚本 |
 | **边界处理** | `tree` 命令不存在时用 `find` 替代；git 历史为空时跳过该步骤；入口文件超过 500 行时只取前 50 行 |
 
 #### 4. `ProjectKnowledgeBuilder` [P0]
@@ -312,8 +312,8 @@ find ~/.claude/projects/ -name "*.jsonl" -exec du -sh {} \; | sort -rh | head -2
 # 统计总数据量
 du -sh ~/.claude/projects/
 
-# 确认 Python 版本（需要 3.8+）
-python3 --version
+# 确认 Node.js 版本（需要 18+）
+node --version
 
 # 确认项目目录
 ls /path/to/your/project/
@@ -322,192 +322,214 @@ git -C /path/to/your/project/ log --oneline -5
 
 ### Step 2：SessionExtractor 脚本
 
-```python
-#!/usr/bin/env python3
-"""
-SessionExtractor: 三层过滤，将 100M+ Claude Code CLI session 压缩到 50KB 以内
-输出文件：extracted_decisions.md
-"""
+```javascript
+#!/usr/bin/env node
+/**
+ * session-extractor.mjs: 三层过滤，将 100M+ Claude Code CLI session 压缩到 50KB 以内
+ * 输出文件：extracted_decisions.md
+ * 运行环境：Node.js 18+，零依赖
+ */
 
-import json
-import os
-import re
-import sys
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Any
+import fs from 'fs';
+import readline from 'readline';
+import path from 'path';
+import os from 'os';
 
-# ── 配置 ──────────────────────────────────────────────────────────────────────
-SESSION_DIR = Path.home() / ".claude" / "projects"
-OUTPUT_FILE = Path("extracted_decisions.md")
-DAYS_LIMIT = 30        # 只处理最近 N 天的文件（可调整，session 较少时可扩大）
-MAX_FILES = 20         # 最多处理 N 个文件（按大小取最大的；session 超 200MB 时建议改为 10）
-MAX_OUTPUT_KB = 50     # 目标输出大小上限（超出时脚本会给出警告，不会强制截断）
+// ── 配置 ──────────────────────────────────────────────────────────────────────
+const SESSION_DIR = path.join(os.homedir(), '.claude', 'projects');
+const OUTPUT_FILE = 'extracted_decisions.md';
+const DAYS_LIMIT = 30;       // 只处理最近 N 天的文件（可调整，session 较少时可扩大）
+const MAX_FILES = 20;        // 最多处理 N 个文件（按大小取最大的；session 超 200MB 时建议改为 10）
+const MAX_OUTPUT_KB = 50;    // 目标输出大小上限（超出时脚本会给出警告，不会强制截断）
 
+/** 解析单个 .jsonl 文件，返回标准化消息列表 */
+async function loadJsonl(filepath) {
+  const messages = [];
+  const fileStream = fs.createReadStream(filepath);
+  const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+  const filename = path.basename(filepath);
+  let lineno = 0;
 
-def load_jsonl(filepath: Path) -> list[dict[str, Any]]:
-    """解析单个 .jsonl 文件，返回标准化消息列表"""
-    messages = []
-    with open(filepath, encoding="utf-8", errors="replace") as f:
-        for lineno, line in enumerate(f, 1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                print(f"  ⚠️  {filepath.name}:{lineno} JSON 解析失败，跳过", file=sys.stderr)
-                continue
+  for await (const line of rl) {
+    lineno++;
+    const trimmed = line.trim();
+    if (!trimmed) continue;
 
-            role = obj.get("role", "")
-            content = obj.get("content", "")
-            timestamp = obj.get("timestamp", "")
+    let obj;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch {
+      process.stderr.write(`  ⚠️  ${filename}:${lineno} JSON 解析失败，跳过\n`);
+      continue;
+    }
 
-            # content 可能是数组（多块内容），拍平提取 text
-            if isinstance(content, list):
-                text_parts = []
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        text_parts.append(block.get("text", ""))
-                content = "\n".join(text_parts)
-            elif not isinstance(content, str):
-                content = str(content)
+    const role = obj.role ?? '';
+    let content = obj.content ?? '';
+    const timestamp = obj.timestamp ?? '';
 
-            if role and content:
-                messages.append({
-                    "role": role,
-                    "content": content,
-                    "timestamp": timestamp,
-                    "source_file": filepath.name,
-                })
-    return messages
+    // content 可能是数组（多块内容），拍平提取 text
+    if (Array.isArray(content)) {
+      content = content
+        .filter(block => block && typeof block === 'object' && block.type === 'text')
+        .map(block => block.text ?? '')
+        .join('\n');
+    } else if (typeof content !== 'string') {
+      content = String(content);
+    }
 
+    if (role && content) {
+      messages.push({ role, content, timestamp, source_file: filename });
+    }
+  }
+  return messages;
+}
 
-def layer1_file_filter(session_dir: Path) -> list[Path]:
-    """第一层：文件级过滤 —— 最近 N 天 + 最大 N 个"""
-    cutoff = datetime.now() - timedelta(days=DAYS_LIMIT)
-    candidates = []
-    for f in session_dir.rglob("*.jsonl"):
-        mtime = datetime.fromtimestamp(f.stat().st_mtime)
-        if mtime >= cutoff:
-            candidates.append((f.stat().st_size, f))
+/** 第一层：文件级过滤 —— 最近 N 天 + 最大 N 个 */
+function layer1FileFilter(sessionDir) {
+  const cutoffMs = Date.now() - DAYS_LIMIT * 24 * 60 * 60 * 1000;
+  const candidates = [];
 
-    # 按大小降序，取前 MAX_FILES 个
-    candidates.sort(reverse=True)
-    selected = [f for _, f in candidates[:MAX_FILES]]
-    print(f"📂 文件级过滤：找到 {len(candidates)} 个近期文件，选取最大的 {len(selected)} 个")
-    return selected
+  function walk(dir) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (err) {
+      process.stderr.write(`  ⚠️  跳过无法访问的目录：${dir}（${err.message}）\n`);
+      return; // 跳过无权限访问的目录
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+        const stat = fs.statSync(full);
+        if (stat.mtimeMs >= cutoffMs) {
+          candidates.push({ size: stat.size, filepath: full });
+        }
+      }
+    }
+  }
+  walk(sessionDir);
 
+  // 按大小降序，取前 MAX_FILES 个
+  candidates.sort((a, b) => b.size - a.size);
+  const selected = candidates.slice(0, MAX_FILES).map(c => c.filepath);
+  console.log(`📂 文件级过滤：找到 ${candidates.length} 个近期文件，选取最大的 ${selected.length} 个`);
+  return selected;
+}
 
-def is_mostly_code(text: str, threshold: float = 0.7) -> bool:
-    """判断消息是否主要由代码块构成"""
-    code_block_chars = sum(len(m.group()) for m in re.finditer(r"```[\s\S]*?```", text))
-    return len(text) > 0 and code_block_chars / len(text) > threshold
+/** 判断消息是否主要由代码块构成 */
+function isMostlyCode(text, threshold = 0.7) {
+  const codeBlockChars = [...text.matchAll(/```[\s\S]*?```/g)]
+    .reduce((sum, m) => sum + m[0].length, 0);
+  return text.length > 0 && codeBlockChars / text.length > threshold;
+}
 
+const DECISION_KEYWORDS =
+  /为什么|为何|原因|方案|决定|决策|选择|不用|改成|换成|放弃|权衡|取舍|考虑过|试过|坑|问题|瓶颈|优化|重构|架构|设计|模式|策略|实现|方式|why|because|reason|decided|instead|tradeoff|approach|pattern/i;
 
-DECISION_KEYWORDS = re.compile(
-    r"(为什么|为何|原因|方案|决定|决策|选择|不用|改成|换成|放弃|权衡|取舍|"
-    r"考虑过|试过|坑|问题|瓶颈|优化|重构|架构|设计|模式|策略|实现|方式|"
-    r"why|because|reason|decided|instead|tradeoff|approach|pattern)",
-    re.IGNORECASE,
-)
+/** 第二层：消息级过滤 —— 丢弃纯代码块和过短消息 */
+function layer2MessageFilter(messages) {
+  const filtered = messages.filter(msg => {
+    if (isMostlyCode(msg.content)) return false;
+    if (msg.content.trim().length < 50) return false;
+    return true;
+  });
+  console.log(`📝 消息级过滤：${messages.length} → ${filtered.length} 条消息`);
+  return filtered;
+}
 
+/** 第三层：语义级过滤 —— 保留含决策关键词的消息，优先 human turn */
+function layer3SemanticFilter(messages) {
+  const humanMsgs = messages.filter(m => m.role === 'human' && DECISION_KEYWORDS.test(m.content));
+  const assistantMsgs = messages.filter(m => m.role === 'assistant' && DECISION_KEYWORDS.test(m.content));
 
-def layer2_message_filter(messages: list[dict]) -> list[dict]:
-    """第二层：消息级过滤 —— 丢弃纯代码块和过短消息"""
-    filtered = []
-    for msg in messages:
-        content = msg["content"]
-        # 丢弃纯代码块
-        if is_mostly_code(content):
-            continue
-        # 丢弃过短消息
-        if len(content.strip()) < 50:
-            continue
-        filtered.append(msg)
-    print(f"📝 消息级过滤：{len(messages)} → {len(filtered)} 条消息")
-    return filtered
+  // human turn 优先，assistant turn 按 human 数量的一半补充（上限 10 条）
+  // 目的：assistant 提供上下文背景，但数量不能超过 human，避免通用内容淹没决策信息
+  const assistantLimit = Math.max(10, Math.floor(humanMsgs.length / 2));
+  let result = [...humanMsgs, ...assistantMsgs.slice(0, assistantLimit)];
+  console.log(`🔍 语义级过滤：human ${humanMsgs.length} 条 + assistant ${Math.min(assistantMsgs.length, assistantLimit)} 条`);
 
+  // 降级：如果语义过滤后为空，保留最长的 20 条 human turn
+  if (result.length === 0) {
+    console.log('⚠️  语义过滤结果为空，降级为保留最长的 20 条 human turn');
+    result = messages
+      .filter(m => m.role === 'human')
+      .sort((a, b) => b.content.length - a.content.length)
+      .slice(0, 20);
+  }
+  return result;
+}
 
-def layer3_semantic_filter(messages: list[dict]) -> list[dict]:
-    """第三层：语义级过滤 —— 保留含决策关键词的消息，优先 human turn"""
-    human_msgs = [m for m in messages if m["role"] == "human" and DECISION_KEYWORDS.search(m["content"])]
-    assistant_msgs = [m for m in messages if m["role"] == "assistant" and DECISION_KEYWORDS.search(m["content"])]
+/** 将过滤后的消息写入 Markdown 文件 */
+function writeOutput(messages, outputPath) {
+  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const lines = [
+    '# Session 决策提炼\n\n',
+    `> 提取时间：${now}  \n`,
+    `> 消息数量：${messages.length} 条\n\n`,
+    '---\n\n',
+  ];
 
-    # human turn 优先，assistant turn 按 human 数量的一半补充（上限 10 条）
-    # 目的：assistant 提供上下文背景，但数量不能超过 human，避免通用内容淹没决策信息
-    assistant_limit = max(10, len(human_msgs) // 2)
-    result = human_msgs + assistant_msgs[:assistant_limit]
-    print(f"🔍 语义级过滤：human {len(human_msgs)} 条 + assistant {len(assistant_msgs[:assistant_limit])} 条")
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    const roleLabel = msg.role === 'human' ? '👤 用户' : '🤖 Claude';
+    const ts = msg.timestamp ? msg.timestamp.slice(0, 19).replace('T', ' ') : '时间未知';
+    lines.push(`### [${i + 1}] ${roleLabel}  \`${ts}\`  \`${msg.source_file}\`\n\n`);
+    lines.push(msg.content.trim() + '\n\n');
+    lines.push('---\n\n');
+  }
 
-    # 降级：如果语义过滤后为空，保留最长的 20 条 human turn
-    if not result:
-        print("⚠️  语义过滤结果为空，降级为保留最长的 20 条 human turn")
-        all_human = sorted(
-            [m for m in messages if m["role"] == "human"],
-            key=lambda m: len(m["content"]),
-            reverse=True,
-        )
-        result = all_human[:20]
+  fs.writeFileSync(outputPath, lines.join(''), 'utf-8');
+  const sizeKb = fs.statSync(outputPath).size / 1024;
+  console.log(`✅ 输出：${outputPath}  (${sizeKb.toFixed(1)} KB)`);
+  if (sizeKb > MAX_OUTPUT_KB) {
+    console.log(`⚠️  输出超过 ${MAX_OUTPUT_KB}KB，建议缩减 MAX_FILES 或 DAYS_LIMIT`);
+  }
+}
 
-    return result
+async function main() {
+  if (!fs.existsSync(SESSION_DIR)) {
+    process.stderr.write(`❌ Session 目录不存在：${SESSION_DIR}\n`);
+    process.exit(1);
+  }
 
+  // 第一层：文件级过滤
+  const selectedFiles = layer1FileFilter(SESSION_DIR);
+  if (selectedFiles.length === 0) {
+    process.stderr.write('❌ 未找到符合条件的 session 文件\n');
+    process.exit(1);
+  }
 
-def write_output(messages: list[dict], output_path: Path) -> None:
-    """将过滤后的消息写入 Markdown 文件"""
-    lines = ["# Session 决策提炼\n\n", f"> 提取时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  \n",
-             f"> 消息数量：{len(messages)} 条\n\n", "---\n\n"]
+  // 加载所有选中文件
+  let allMessages = [];
+  for (const filepath of selectedFiles) {
+    const stat = fs.statSync(filepath);
+    console.log(`  📖 加载 ${path.basename(filepath)} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`);
+    allMessages = allMessages.concat(await loadJsonl(filepath));
+  }
+  console.log(`📊 共加载 ${allMessages.length} 条原始消息\n`);
 
-    for i, msg in enumerate(messages, 1):
-        role_label = "👤 用户" if msg["role"] == "human" else "🤖 Claude"
-        ts = msg.get("timestamp", "")[:19].replace("T", " ") if msg.get("timestamp") else "时间未知"
-        lines.append(f"### [{i}] {role_label}  `{ts}`  `{msg['source_file']}`\n\n")
-        lines.append(msg["content"].strip() + "\n\n")
-        lines.append("---\n\n")
+  // 第二层：消息级过滤
+  let messages = layer2MessageFilter(allMessages);
 
-    output_path.write_text("".join(lines), encoding="utf-8")
-    size_kb = output_path.stat().st_size / 1024
-    print(f"✅ 输出：{output_path}  ({size_kb:.1f} KB)")
-    if size_kb > MAX_OUTPUT_KB:
-        print(f"⚠️  输出超过 {MAX_OUTPUT_KB}KB，建议缩减 MAX_FILES 或 DAYS_LIMIT")
+  // 第三层：语义级过滤
+  messages = layer3SemanticFilter(messages);
 
+  // 写入输出
+  writeOutput(messages, OUTPUT_FILE);
+}
 
-def main() -> None:
-    if not SESSION_DIR.exists():
-        print(f"❌ Session 目录不存在：{SESSION_DIR}", file=sys.stderr)
-        sys.exit(1)
-
-    # 第一层：文件级过滤
-    selected_files = layer1_file_filter(SESSION_DIR)
-    if not selected_files:
-        print("❌ 未找到符合条件的 session 文件", file=sys.stderr)
-        sys.exit(1)
-
-    # 加载所有选中文件
-    all_messages = []
-    for f in selected_files:
-        print(f"  📖 加载 {f.name} ({f.stat().st_size / 1024 / 1024:.1f} MB)")
-        all_messages.extend(load_jsonl(f))
-    print(f"📊 共加载 {len(all_messages)} 条原始消息\n")
-
-    # 第二层：消息级过滤
-    messages = layer2_message_filter(all_messages)
-
-    # 第三层：语义级过滤
-    messages = layer3_semantic_filter(messages)
-
-    # 写入输出
-    write_output(messages, OUTPUT_FILE)
-
-
-if __name__ == "__main__":
-    main()
+main().catch(err => {
+  process.stderr.write(`❌ 运行失败：${err.message}\n`);
+  process.exit(1);
+});
 ```
 
 运行方式：
 
 ```bash
-python3 session_extractor.py
+node session-extractor.mjs
 # 输出：extracted_decisions.md（约 30–50KB）
 ```
 
@@ -570,9 +592,11 @@ for entry_pattern in "src/index.ts" "src/main.ts" "src/app.ts" "index.ts" \
     fi
 done
 
-# 模块目录的 index 文件（使用 Python 获取相对路径，兼容 macOS 和 Linux）
-find "$PROJECT_DIR/src" -name "index.ts" -not -path "*/node_modules/*" 2>/dev/null | head -10 | while read -r f; do
-    rel=$(python3 -c "import os; print(os.path.relpath('$f', '$PROJECT_DIR'))")
+# 模块目录的 index 文件（兼容 macOS 和 Linux）
+# 使用 NODE_PATH 前缀剥离方式获取相对路径
+_dir=$(cd "$PROJECT_DIR" && pwd)
+find "$_dir/src" -name "index.ts" -not -path "*/node_modules/*" 2>/dev/null | head -10 | while read -r f; do
+    rel="${f#$_dir/}"
     echo "### $rel" >> "$OUTPUT"
     echo '```typescript' >> "$OUTPUT"
     head -30 "$f" >> "$OUTPUT"
@@ -777,7 +801,7 @@ du -sh ~/.claude/projects/
 ### 第二步：运行 SessionExtractor（约 3–5 分钟）
 
 ```bash
-python3 session_extractor.py
+node session-extractor.mjs
 ```
 
 预期输出：
@@ -857,13 +881,9 @@ bash code_analyzer.sh ~/projects/my-video-agent
 **处理策略**：降级为以 `CodeArchitectureAnalyzer` 为主。
 
 ```bash
-# 检测 session 内容类型
-python3 -c "
-import json, pathlib
-f = pathlib.Path('extracted_decisions.md').read_text()
-if len(f) < 5000:
-    print('⚠️ session 内容稀少，建议以代码摘要为主要信息源')
-"
+# 检测 session 内容类型（纯 shell，无需 Node.js）
+size=$(wc -c < extracted_decisions.md 2>/dev/null || echo 0)
+[ "$size" -lt 5000 ] && echo "⚠️ session 内容稀少，建议以代码摘要为主要信息源"
 ```
 
 在 `ProjectKnowledgeBuilder` Prompt 中注明："Session 摘要内容有限，请主要依据代码摘要推断架构决策，置信度标注为🟡中。"
@@ -872,10 +892,10 @@ if len(f) < 5000:
 
 **处理策略**：调整 `SessionExtractor` 参数，分批处理。
 
-```python
-# 修改 session_extractor.py 顶部配置
-DAYS_LIMIT = 14   # 缩减到最近 2 周
-MAX_FILES = 10    # 减少文件数量
+```javascript
+// 修改 session-extractor.mjs 顶部配置
+const DAYS_LIMIT = 14;   // 缩减到最近 2 周
+const MAX_FILES = 10;    // 减少文件数量
 ```
 
 如仍超出，可以只处理 **最后 5 个最大的 session 文件**（通常对应项目最活跃的阶段）：
@@ -891,9 +911,9 @@ find ~/.claude/projects/ -name "*.jsonl" -exec du -sh {} \; | sort -rh | head -5
 1. 先确认本次面试针对哪个项目（按 JD 匹配度判断）
 2. 手动指定 `SESSION_DIR` 和 `PROJECT_DIR`：
 
-```bash
-# 修改 session_extractor.py 中的 SESSION_DIR
-SESSION_DIR = Path("/home/user/.claude/projects/my-video-agent")
+```javascript
+// 修改 session-extractor.mjs 中的 SESSION_DIR
+const SESSION_DIR = path.join(os.homedir(), '.claude', 'projects', 'my-video-agent');
 ```
 
 未来的 `ProjectSelector` 组件将自动按 JD 匹配最相关的项目。
@@ -908,7 +928,7 @@ SESSION_DIR = Path("/home/user/.claude/projects/my-video-agent")
 - **Windsurf**：格式待调研
 - **通用接入**：只要能提取 `{role, content, timestamp}` 三元组，后续流程完全复用
 
-扩展位置：在 `load_jsonl()` 函数中添加格式检测分支，或新增独立的 `load_cursor()` / `load_windsurf()` 函数。
+扩展位置：在 `loadJsonl()` 函数中添加格式检测分支，或新增独立的 `loadCursor()` / `loadWindsurf()` 函数。
 
 ### 情况 5：生成内容置信度过低
 
