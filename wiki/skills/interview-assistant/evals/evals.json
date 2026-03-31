@@ -1,0 +1,20 @@
+{
+  "skill_name": "interview-assistant",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我刚用 Claude Code 开发完一个视频脚本生成 Agent，用了 LangChain.js + BullMQ + NestJS，下周要面试字节跳动的高级前端工程师职位，帮我从我的 claude 记录里准备面试题，项目在 ~/projects/video-script-agent",
+      "expected_output": "The assistant should: (1) confirm the project path and target role, (2) run scripts/run.sh ~/projects/video-script-agent to extract session decisions and code summary, (3) build a knowledge graph cross-referencing both documents with confidence ratings, (4) generate 20-30 interview questions anchored to actual architecture decisions (e.g., why BullMQ over simple queue, how LangChain chains were structured, NestJS module boundaries), (5) produce STAR story cards in first-person Chinese. Output files: project_knowledge_graph.md, interview_questions.md, story_cards.md."
+    },
+    {
+      "id": 2,
+      "prompt": "I've been building an internal React dashboard tool with Claude Code for the past 2 months — it uses React + Zustand + React Query on the frontend and a simple Express API. I have a fullstack engineer interview at a Series B startup next Friday. Can you help me prepare?",
+      "expected_output": "The assistant should ask for the project directory path (since it wasn't provided), then run the extraction scripts on the provided path. The knowledge graph should identify key decisions made (Zustand vs Redux, React Query for server state, API design choices). Interview questions should include both system design and behavioral questions. Story cards should be in English, first-person. The response should not just produce generic React interview questions — they must trace back to actual decisions in the user's codebase."
+    },
+    {
+      "id": 3,
+      "prompt": "帮我从我的 Claude Code 开发记录里整理面试题，我的项目是个 monorepo，用了 Turborepo + Next.js 14 + Prisma + tRPC，还有一些 Agent 工具，项目目录是 /Users/me/work/saas-platform",
+      "expected_output": "The assistant should recognize this as a monorepo with multiple concerns and run session-extractor to find decisions across all workspaces. Knowledge graph should map decisions per package (web app, API, agent tools). Interview questions should cover: monorepo build decisions (Turborepo cache strategy), tRPC vs REST tradeoffs, Prisma schema design, Next.js app router adoption, and any Agent tool architecture decisions. Should note any 'tension points' where session logs indicate considered alternatives but chose differently."
+    }
+  ]
+}

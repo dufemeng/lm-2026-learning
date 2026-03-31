@@ -11,7 +11,7 @@
 set -euo pipefail
 
 REPO_RAW="https://raw.githubusercontent.com/dufemeng/lm-2026-learning/main/wiki/skills/interview-assistant"
-INSTALL_DIR="$HOME/.interview-assistant"
+INSTALL_DIR="$HOME/.claude/skills/interview-assistant"
 CLAUDE_COMMANDS_DIR="$HOME/.claude/commands"
 
 # ── 颜色输出 ──────────────────────────────────────────────────────────────────
@@ -37,19 +37,22 @@ if ! command -v node &>/dev/null; then
 fi
 
 # ── 创建目录 ──────────────────────────────────────────────────────────────────
-mkdir -p "$INSTALL_DIR/prompts"
+mkdir -p "$INSTALL_DIR/scripts"
+mkdir -p "$INSTALL_DIR/references"
+mkdir -p "$INSTALL_DIR/evals"
 mkdir -p "$CLAUDE_COMMANDS_DIR"
 
 # ── 下载脚本文件 ──────────────────────────────────────────────────────────────
 echo "📥 下载脚本文件到 $INSTALL_DIR ..."
 
 files=(
-  "session-extractor.mjs"
-  "code_analyzer.sh"
-  "run.sh"
-  "prompts/01-project-knowledge-builder.md"
-  "prompts/02-interview-generator.md"
-  "prompts/03-story-card-builder.md"
+  "scripts/session-extractor.mjs"
+  "scripts/code_analyzer.sh"
+  "scripts/run.sh"
+  "references/01-project-knowledge-builder.md"
+  "references/02-interview-generator.md"
+  "references/03-story-card-builder.md"
+  "SKILL.md"
 )
 
 for f in "${files[@]}"; do
@@ -59,7 +62,7 @@ for f in "${files[@]}"; do
 done
 
 # 赋予脚本执行权限
-chmod +x "$INSTALL_DIR/run.sh" "$INSTALL_DIR/code_analyzer.sh" 2>/dev/null || true
+chmod +x "$INSTALL_DIR/scripts/run.sh" "$INSTALL_DIR/scripts/code_analyzer.sh" 2>/dev/null || true
 
 # ── 安装 Claude Code CLI 斜杠命令 ─────────────────────────────────────────────
 COMMAND_FILE="$CLAUDE_COMMANDS_DIR/interview-assistant.md"
@@ -76,7 +79,7 @@ cat > "$COMMAND_FILE" << 'CLAUDE_CMD'
 运行以下命令：
 
 ```bash
-bash ~/.interview-assistant/run.sh $ARGUMENTS
+bash ~/.claude/skills/interview-assistant/scripts/run.sh $ARGUMENTS
 ```
 
 等待脚本完成，确认生成了 `extracted_decisions.md` 和 `code_summary.md`。
@@ -84,7 +87,7 @@ bash ~/.interview-assistant/run.sh $ARGUMENTS
 ### Step 2 — 构建项目知识图谱
 
 读取 `extracted_decisions.md` 和 `code_summary.md` 的内容，然后严格按照
-`~/.interview-assistant/prompts/01-project-knowledge-builder.md` 中的格式要求，
+`~/.claude/skills/interview-assistant/references/01-project-knowledge-builder.md` 中的格式要求，
 在**同一次分析**中交叉印证两份文档，输出项目知识图谱。
 
 将结果保存到 `project_knowledge_graph.md`。
@@ -95,14 +98,14 @@ bash ~/.interview-assistant/run.sh $ARGUMENTS
 - 目标职级（资深前端 / 全栈工程师 / Agent 工程师）
 - 是否有目标 JD（有则粘贴）
 
-按照 `~/.interview-assistant/prompts/02-interview-generator.md` 的格式，
+按照 `~/.claude/skills/interview-assistant/references/02-interview-generator.md` 的格式，
 基于知识图谱中的 TOP5 高价值决策生成面试题。
 
 将结果保存到 `interview_questions.md`。
 
 ### Step 4 — 生成 STAR 故事卡
 
-按照 `~/.interview-assistant/prompts/03-story-card-builder.md` 的格式，
+按照 `~/.claude/skills/interview-assistant/references/03-story-card-builder.md` 的格式，
 将 TOP5 决策整理为可直接口述的 STAR 故事卡（每张 200–300 字）。
 
 将结果保存到 `story_cards.md`。
@@ -128,7 +131,7 @@ if [ -n "$SHELL_RC" ]; then
   if ! grep -q "interview-assistant" "$SHELL_RC" 2>/dev/null; then
     echo "" >> "$SHELL_RC"
     echo "# Interview Assistant" >> "$SHELL_RC"
-    echo "alias interview-assistant='bash $INSTALL_DIR/run.sh'" >> "$SHELL_RC"
+    echo "alias interview-assistant='bash ~/.claude/skills/interview-assistant/scripts/run.sh'" >> "$SHELL_RC"
     green "✓  Shell alias 已添加到 $SHELL_RC"
   else
     yellow "ℹ️  Shell alias 已存在，跳过"
@@ -147,7 +150,7 @@ echo ""
 echo "      /interview-assistant /path/to/your/project"
 echo ""
 echo "  使用方式二：直接运行脚本"
-echo "    bash ~/.interview-assistant/run.sh /path/to/your/project"
+echo "    bash ~/.claude/skills/interview-assistant/scripts/run.sh /path/to/your/project"
 echo ""
 if [ -n "$SHELL_RC" ]; then
   echo "  使用方式三：Shell alias（需重启终端或 source $SHELL_RC）"
